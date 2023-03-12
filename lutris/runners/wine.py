@@ -20,6 +20,7 @@ from lutris.util.steam.config import get_steam_dir
 from lutris.util.strings import parse_version, split_arguments
 from lutris.util.wine.d3d_extras import D3DExtrasManager
 from lutris.util.wine.dgvoodoo2 import dgvoodoo2Manager
+from lutris.util.wine.d8vk import D8VKManager
 from lutris.util.wine.dxvk import DXVKManager
 from lutris.util.wine.dxvk_nvapi import DXVKNVAPIManager
 from lutris.util.wine.extract_icon import PEFILE_AVAILABLE, ExtractIcon
@@ -282,9 +283,29 @@ class wine(Runner):
                 "default": DXVKNVAPIManager().version,
             },
             {
+                "option": "d8vk",
+                "section": _("Graphics"),
+                "label": _("Enable d8vk"),
+                "type": "bool",
+                "default": False,
+                "advanced": False,
+                "help": _(
+                    "A Vulkan-based translation layer for Direct3D 8/9/10/11 which allows running 3D applications on Linux using Wine."
+                ),
+            },
+            {
+                "option": "d8vk_version",
+                "section": _("Graphics"),
+                "label": _("d8vk version"),
+                "advanced": True,
+                "type": "choice_with_entry",
+                "choices": D8VKManager().version_choices,
+                "default": D8VKManager().version,
+            },
+            {
                 "option": "dgvoodoo2",
                 "section": _("Graphics"),
-                "label": _("Enable dgvoodoo2"),
+                "label": _("Enable dgvoodoo2 "),
                 "type": "bool",
                 "default": False,
                 "advanced": False,

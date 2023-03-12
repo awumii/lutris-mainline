@@ -27,6 +27,7 @@ from lutris.util.steam.shortcut import update_all_artwork
 from lutris.util.system import create_folder
 from lutris.util.wine.d3d_extras import D3DExtrasManager
 from lutris.util.wine.dgvoodoo2 import dgvoodoo2Manager
+from lutris.util.wine.d8vk import D8VKManager
 from lutris.util.wine.dxvk import DXVKManager
 from lutris.util.wine.dxvk_nvapi import DXVKNVAPIManager
 from lutris.util.wine.vkd3d import VKD3DManager
@@ -209,7 +210,7 @@ def init_lutris():
 class StartupRuntimeUpdater(RuntimeUpdater):
     """Due to circular reference problems, we need to keep all these interesting
     references here, out of runtime.py"""
-    dll_manager_classes = [DXVKManager, DXVKNVAPIManager, VKD3DManager, D3DExtrasManager, dgvoodoo2Manager]
+    dll_manager_classes = [DXVKManager, DXVKNVAPIManager, VKD3DManager, D3DExtrasManager, dgvoodoo2Manager, D8VKManager]
 
     def __init__(self, force=False):
         super().__init__(force)
