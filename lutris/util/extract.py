@@ -5,6 +5,7 @@ import subprocess
 import tarfile
 import uuid
 import zlib
+import pyzstd
 
 from lutris import settings
 from lutris.util import system
@@ -106,7 +107,7 @@ def get_archive_opener(extractor):
     elif extractor in ("tbz2", "bz2"):  # bz2 is used for .tar.bz2 in some installer scripts
         opener, mode = tarfile.open, "r:bz2"
     elif extractor == "tzst":
-        opener, mode = tarfile.open, "r:zst"  # Note: not supported by tarfile yet
+        opener = "pyzstd"
     elif extractor == "gzip":
         opener = "gz"
     elif extractor == "gog":
@@ -193,11 +194,18 @@ def _do_extract(archive, dest, opener, mode=None, extractor=None):
         extract_deb(archive, dest)
     elif opener == "AppImage":
         extract_AppImage(archive, dest)
+    elif opener == "pyzstd":
+        extract_tzst(archive, dest)
     else:
         handler = opener(archive, mode)
         handler.extractall(dest)
         handler.close()
 
+def extract_tzst(archive, dest):
+   # Open the archive with pyzstd and tarfile
+    with tarfile.open(fileobj=pyzstd.ZstdFile(archive, "rb")) as tar:
+        # Extract all files from the archive
+        tar.extractall(dest)
 
 def extract_exe(path, dest):
     if check_inno_exe(path):
