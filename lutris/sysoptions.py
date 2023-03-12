@@ -253,7 +253,7 @@ system_options = [  # pylint: disable=invalid-name
         "option": "disable_runtime",
         "type": "bool",
         "label": _("Disable Lutris Runtime"),
-        "default": False,
+        "default": true,
         "help": _("The Lutris Runtime loads some libraries before running the "
                   "game, which can cause some incompatibilities in some cases. "
                   "Check this option to disable it."),
