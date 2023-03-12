@@ -530,7 +530,7 @@ system_options = [  # pylint: disable=invalid-name
         "section": "Multi-GPU",
         "option": "prime",
         "type": "bool",
-        "default": False,
+        "default": true,
         "condition": True,
         "label": _("Enable NVIDIA Prime Render Offload"),
         "help": _("If you have the latest NVIDIA driver and the properly patched xorg-server (see "
