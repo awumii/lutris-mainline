@@ -1,5 +1,6 @@
 """Main window for the Lutris interface."""
 import os
+import re
 from collections import namedtuple
 from gettext import gettext as _
 from urllib.parse import unquote, urlparse
@@ -89,6 +90,12 @@ class LutrisWindow(Gtk.ApplicationWindow,
         self.current_view = Gtk.Box()
         self.views = {}
 
+        self.dynamic_categories_game_factories = {
+            "recent": self.get_recent_games,
+            "missing": self.get_missing_games,
+            "running": self.get_running_games,
+        }
+
         self.connect("delete-event", self.on_window_delete)
         self.connect("configure-event", self.on_window_configure)
         self.connect("realize", self.on_load)
@@ -124,6 +131,8 @@ class LutrisWindow(Gtk.ApplicationWindow,
         self.revealer_box = Gtk.HBox(visible=True)
         self.game_revealer.add(self.revealer_box)
         self.get_missing_games()
+        self.update_action_state()
+
         self.connect("view-updated", self.update_store)
         GObject.add_emission_hook(BaseService, "service-login", self.on_service_login)
         GObject.add_emission_hook(BaseService, "service-logout", self.on_service_logout)
@@ -136,7 +145,7 @@ class LutrisWindow(Gtk.ApplicationWindow,
 
     def _init_actions(self):
         Action = namedtuple("Action", ("callback", "type", "enabled", "default", "accel"))
-        Action.__new__.__defaults__ = (None, None, True, None, None)
+        Action.__new__.__defaults__ = (None, None, None, None, None)
 
         actions = {
             "add-game": Action(self.on_add_game_button_clicked),
@@ -150,11 +159,17 @@ class LutrisWindow(Gtk.ApplicationWindow,
             ),
             "toggle-viewtype": Action(self.on_toggle_viewtype),
             "icon-type": Action(self.on_icontype_state_change, type="s", default=self.icon_type),
-            "view-sorting": Action(self.on_view_sorting_state_change, type="s", default=self.view_sorting),
+            "view-sorting": Action(
+                self.on_view_sorting_state_change,
+                type="s",
+                default=self.view_sorting,
+                enabled=lambda: self.is_view_sort_active
+            ),
             "view-sorting-ascending": Action(
                 self.on_view_sorting_direction_change,
                 type="b",
                 default=self.view_sorting_ascending,
+                enabled=lambda: self.is_view_sort_active
             ),
             "show-side-panel": Action(
                 self.on_side_panel_state_change,
@@ -174,6 +189,7 @@ class LutrisWindow(Gtk.ApplicationWindow,
         }
 
         self.actions = {}
+        self.action_state_updaters = []
         app = self.props.application
         for name, value in actions.items():
             if not value.type:
@@ -189,11 +205,19 @@ class LutrisWindow(Gtk.ApplicationWindow,
                 action = Gio.SimpleAction.new_stateful(name, param_type, default_value)
                 action.connect("change-state", value.callback)
             self.actions[name] = action
-            if value.enabled is False:
-                action.props.enabled = False
+            if value.enabled:
+                def updater(action=action, value=value):
+                    action.props.enabled = value.enabled()
+                self.action_state_updaters.append(updater)
             self.add_action(action)
             if value.accel:
                 app.add_accelerator(value.accel, "win." + name)
+
+    def update_action_state(self):
+        """This invokes the functions to update the enabled states of all the actions
+        which can be disabled."""
+        for updater in self.action_state_updaters:
+            updater()
 
     @property
     def service_media(self):
@@ -266,14 +290,74 @@ class LutrisWindow(Gtk.ApplicationWindow,
 
     @property
     def sort_params(self):
-        _sort_params = [("installed", "COLLATE NOCASE DESC")]
-        _sort_params.append((
+        """This provides a list of sort options for SQL generation; this isn't
+        exactly a match for what self.apply_view_sort does, but it is as close
+        as may be, in the hope that a faster DB sort will get is close and result
+        in a faster sort overall."""
+        return [("installed", "COLLATE NOCASE DESC"), (
             self.view_sorting,
             "COLLATE NOCASE ASC"
             if self.view_sorting_ascending
             else "COLLATE NOCASE DESC"
-        ))
-        return _sort_params
+        )]
+
+    @property
+    def is_view_sort_active(self):
+        """True if the iew sorting options will be effective; dynamic categories ignore them."""
+        return self.filters.get("dynamic_category") not in self.dynamic_categories_game_factories
+
+    def apply_view_sort(self, items, resolver=lambda i: i):
+        """This sorts a list of items according to the view settings of this window;
+        the items can be anything, but you can provide a lambda that provides a
+        database game dictionary for each one; this dictionary carries the
+        data we sort on (though any field may be missing).
+
+        This sort always sorts installed games ahead of uninstalled ones, even when
+        the sort is set to descending.
+
+        This treats 'name' sorting specially, applying a natural sort so that
+        'Mega slap battler 20' comes after 'Mega slap battler 3'. For this reason,
+        we can't just accept the sort the database gives us via self.sort_params;
+        that'll get us close, but we must resort to get it right."""
+        view_sorting = self.view_sorting
+        sort_defaults = {
+            "name": "",
+            "year": 0,
+            "lastplayed": 0.0,
+            "installed_at": 0.0,
+            "playtime": 0.0,
+        }
+
+        def natural_sort_key(value):
+            def pad_numbers(text):
+                return text.zfill(16) if text.isdigit() else text
+
+            key = [pad_numbers(c) for c in re.split('([0-9]+)', value)]
+            return key
+
+        def get_sort_value(item):
+            db_game = resolver(item)
+            if not db_game:
+                installation_flag = False
+                value = sort_defaults.get(view_sorting, "")
+            else:
+                installation_flag = bool(db_game.get("installed"))
+                value = db_game.get(view_sorting)
+
+                if view_sorting == "name":
+                    value = natural_sort_key(value)
+
+            # We want installed games to always be first, even in
+            # a descending sort.
+            if self.view_sorting_ascending:
+                installation_flag = not installation_flag
+
+            # Users may have obsolete view_sorting settings, so
+            # we must tolerate them. We treat them all as blank.
+            value = value or sort_defaults.get(view_sorting, "")
+            return [installation_flag, value]
+
+        return sorted(items, key=get_sort_value, reverse=not self.view_sorting_ascending)
 
     def get_running_games(self):
         """Return a list of currently running games"""
@@ -337,30 +421,10 @@ class LutrisWindow(Gtk.ApplicationWindow,
         else:
             lutris_games = {g["service_id"]: g for g in games_db.get_games(filters={"service": self.service.id})}
 
-        def get_sort_value(game):
-            sort_defaults = {
-                "name": "",
-                "year": 0,
-                "lastplayed": 0.0,
-                "installed_at": 0.0,
-                "playtime": 0.0,
-            }
-            view_sorting = self.view_sorting
-            lutris_game = lutris_games.get(game["appid"])
-            if not lutris_game:
-                return sort_defaults.get(view_sorting, "")
-            value = lutris_game.get(view_sorting)
-            if value:
-                return value
-            # Users may have obsolete view_sorting settings, so
-            # we must tolerate them. We treat them all as blank.
-            return sort_defaults.get(view_sorting, "")
-
         return [
-            self.combine_games(game, lutris_games.get(game["appid"])) for game in sorted(
+            self.combine_games(game, lutris_games.get(game["appid"])) for game in self.apply_view_sort(
                 service_games,
-                key=get_sort_value,
-                reverse=not self.view_sorting_ascending
+                lambda game: lutris_games.get(game["appid"]) or game
             ) if self.game_matches(game)
         ]
 
@@ -371,13 +435,8 @@ class LutrisWindow(Gtk.ApplicationWindow,
                 self.show_label(_("Connect your %s account to access your games") % self.service.name)
                 return []
             return self.get_service_games(service_name)
-        dynamic_categories = {
-            "recent": self.get_recent_games,
-            "missing": self.get_missing_games,
-            "running": self.get_running_games,
-        }
-        if self.filters.get("dynamic_category") in dynamic_categories:
-            return dynamic_categories[self.filters["dynamic_category"]]()
+        if self.filters.get("dynamic_category") in self.dynamic_categories_game_factories:
+            return self.dynamic_categories_game_factories[self.filters["dynamic_category"]]()
         if self.filters.get("category") and self.filters["category"] != "all":
             game_ids = categories_db.get_game_ids_for_category(self.filters["category"])
         else:
@@ -391,7 +450,7 @@ class LutrisWindow(Gtk.ApplicationWindow,
         )
         if game_ids is not None:
             return [game for game in games if game["id"] in game_ids]
-        return games
+        return self.apply_view_sort(games)
 
     def get_sql_filters(self):
         """Return the current filters for the view"""
@@ -634,6 +693,7 @@ class LutrisWindow(Gtk.ApplicationWindow,
 
         self.games_stack.set_visible_child_name(view_type)
         self.update_store()
+        self.update_action_state()
 
     def set_viewtype_icon(self, view_type):
         self.viewtype_icon.set_from_icon_name("view-%s-symbolic" % view_type, Gtk.IconSize.BUTTON)
