@@ -2,9 +2,10 @@
 # pylint: disable=no-member
 from gi.repository import Gtk
 
-from lutris.gui.views import COL_ICON, COL_NAME
+from lutris import settings
+from lutris.gui.views import COL_PIXBUF_PATH, COL_NAME, COL_INSTALLED
 from lutris.gui.views.base import GameView
-from lutris.gui.widgets.cellrenderers import GridViewCellRendererText
+from lutris.gui.widgets.cellrenderers import GridViewCellRendererText, GridViewCellRendererImage
 from lutris.util.log import logger
 
 
@@ -18,7 +19,14 @@ class GameGridView(Gtk.IconView, GameView):
         GameView.__init__(self, store.service)
 
         self.set_column_spacing(6)
-        self.set_pixbuf_column(COL_ICON)
+
+        if settings.SHOW_MEDIA:
+            self.image_renderer = GridViewCellRendererImage()
+            self.pack_start(self.image_renderer, False)
+            self.add_attribute(self.image_renderer, "pixbuf_path", COL_PIXBUF_PATH)
+            self.add_attribute(self.image_renderer, "is_installed", COL_INSTALLED)
+        else:
+            self.image_renderer = None
         self.set_item_padding(1)
         if hide_text:
             self.cell_renderer = None
@@ -39,8 +47,14 @@ class GameGridView(Gtk.IconView, GameView):
         self.model = game_store.store
         self.set_model(self.model)
 
+        size = game_store.service_media.size
+
+        if self.image_renderer:
+            self.image_renderer.cell_width = size[0]
+            self.image_renderer.cell_height = size[1]
+
         if self.cell_renderer:
-            cell_width = max(game_store.service_media.size[0], self.min_width)
+            cell_width = max(size[0], self.min_width)
             self.cell_renderer.set_width(cell_width)
 
     def select(self):

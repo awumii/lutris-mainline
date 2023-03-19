@@ -3,9 +3,7 @@ import time
 
 from lutris.database.games import get_service_games
 from lutris.game import Game
-from lutris.gui.widgets.utils import get_pixbuf
 from lutris.runners import RUNNER_NAMES
-from lutris.util import system
 from lutris.util.log import logger
 from lutris.util.strings import get_formatted_playtime, gtk_safe
 
@@ -72,7 +70,9 @@ class StoreItem:
     def platform(self):
         """Platform"""
         _platform = self._game_data.get("platform")
-        if not _platform and not self.service and self.installed:
+        if "platform" in self._game_data:
+            _platform = self._game_data["platform"]
+        elif not self.service and self.installed:
             game_inst = Game(self._game_data["id"])
             if game_inst.platform:
                 _platform = game_inst.platform
@@ -87,18 +87,12 @@ class StoreItem:
             return False
         return self._game_data.get("installed")
 
-    def get_pixbuf(self):
-        """Pixbuf varying on icon type"""
+    def get_pixbuf_path(self):
+        """Returns the path to the image file for this item"""
         if self._game_data.get("icon"):
-            image_path = self._game_data["icon"]
-        else:
-            image_path = self.service_media.get_absolute_path(self.slug)
-        if system.path_exists(image_path):
-            return get_pixbuf(image_path, self.service_media.size, is_installed=self.installed)
-        return self.service_media.get_pixbuf_for_game(
-            self._game_data["slug"],
-            is_installed=self.installed
-        )
+            return self._game_data["icon"]
+
+        return self.service_media.get_absolute_path(self.slug)
 
     @property
     def installed_at(self):
